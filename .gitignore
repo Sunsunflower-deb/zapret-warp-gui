@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Локальная конфигурация (машинная, создаётся автоматически)
+config.json
+
+# Приватные ключи WARP-аккаунта (wgcf-account.toml содержит access_token,
+# wgcf-profile.conf содержит PrivateKey) — НЕ публиковать!
+wgcf/
+wgcf-account.toml
+wgcf-profile.conf
+
+# Логи/временное
+run/
+*.log
+
+# Опциональные Go-бинари встроенного WARP (~22 МБ) — нужны только для пути
+# wgcf+wireproxy на сетях без блокировки UDP 2408; скачиваются отдельно (README)
+bin/wgcf
+bin/wireproxy
+
+# PyInstaller
+build/
+dist/
