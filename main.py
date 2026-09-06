@@ -1,4 +1,5 @@
 """zapret-warp — графический интерфейс (tkinter)."""
+import os
 import queue
 import threading
 import time
@@ -182,6 +183,19 @@ class App:
         for line in doctor.format_report(doctor.run()).split("\n"):
             self._log(line)
 
+    def _elevation_hint(self):
+        """Подсказка, специфичная для ОС, когда DPI-движок не стартовал."""
+        if os.name == "nt":
+            if engine.is_admin():
+                return ("Подсказка: драйвер WinDivert не загрузился — проверь, что "
+                        "bin/winws.exe и bin/WinDivert64.sys лежат рядом с .exe, "
+                        "и что winws.exe не блокируется антивирусом.")
+            return ("Подсказка: запустите zapret-warp.exe от имени администратора "
+                    "(ПКМ → «Запуск от имени администратора»): winws нужен "
+                    "драйвер WinDivert, а warp-cli на Windows требует прав админа.")
+        return ("Подсказка: запусти GUI без sudo и выполни один раз:\n"
+                "    sudo python3 cli.py setup   (NOPASSWD для root-helper)")
+
     def _do_start(self, c):
         try:
             self._log("Запуск DPI-десинка: " + c["strategy"])
@@ -190,15 +204,22 @@ class App:
             self._log("DPI-десинк запущен (nfqws/winws)")
         except Exception as e:
             self._log("Ошибка десинка: " + str(e))
-            self._log("Подсказка: запусти GUI без sudo и выполни один раз:")
-            self._log("    sudo python3 cli.py setup   (NOPASSWD для root-helper)")
+            self._log(self._elevation_hint())
+            self._log("Готово (с ошибкой).")
+            self.root.after(0, lambda: self.btn_start.config(state="normal"))
+            return
+
+        if not engine.is_running():
+            self._log("Внимание: процесс nfqws/winws не найден — десинк НЕ работает.")
+            self._log(self._elevation_hint())
+
         time.sleep(3)
         if c["warp_enabled"]:
             try:
                 if warp.installed():
                     self._log("Подключение WARP…")
-                    warp.connect(c)
-                    self._log("WARP: команда connect выполнена")
+                    st = warp.connect(c)
+                    self._log("WARP подключен: " + st)
                 else:
                     self._log("warp-cli не найден — пропуск WARP")
             except Exception as e:

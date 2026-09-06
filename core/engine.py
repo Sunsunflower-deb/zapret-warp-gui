@@ -1,10 +1,42 @@
 """Запуск DPI-десинка: nfqws (Linux, через root-helper) / winws.exe (Windows)."""
 import os
 import subprocess
+import tempfile
+import time
 
 from . import paths, strategy
 
 HELPER = os.path.join(paths.APP_DIR, "root-helper.sh")
+
+
+def is_admin():
+    """Запущены ли мы с правами администратора/root."""
+    if os.name != "nt":
+        return os.geteuid() == 0
+    try:
+        import ctypes
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())
+    except Exception:
+        return False
+
+
+def winws_log_path():
+    """Куда winws пишет stdout/stderr (для диагностики на Windows)."""
+    return os.path.join(tempfile.gettempdir(), "zapret-warp-winws.log")
+
+
+def winws_log_tail(n=15):
+    """Последние n строк лога winws (пустая строка, если лога нет)."""
+    return _tail(winws_log_path(), n)
+
+
+def _tail(path, n=15):
+    try:
+        with open(path, "rb") as f:
+            lines = f.read().decode("utf-8", "replace").splitlines()
+        return "\n".join(lines[-n:])
+    except OSError:
+        return ""
 
 
 def _sudo():
@@ -53,12 +85,40 @@ def start(name, interface, gamefilter_tcp, gamefilter_udp):
 
 
 def _start_winws(all_args):
+    """Запустить winws.exe и убедиться, что он реально поднялся.
+
+    Раньше мы стартовали процесс «вслепую» — если winws сразу падал
+    (нет прав администратора для драйвера WinDivert), GUI всё равно писал
+    «запущен», WARP оставался на 51%. Теперь stdout/stderr winws пишутся
+    в лог, и через ~2 с проверяется, что процесс ещё жив.
+    """
     subprocess.run(["taskkill", "/IM", "winws.exe", "/F"], capture_output=True)
-    subprocess.Popen(
-        [paths.desync_binary()] + all_args,
-        cwd=paths.APP_DIR,  # чтобы относительные bin/, lists/ резолвились
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
+
+    log_path = winws_log_path()
+    try:
+        os.remove(log_path)
+    except OSError:
+        pass
+
+    logf = open(log_path, "wb")
+    try:
+        proc = subprocess.Popen(
+            [paths.desync_binary()] + all_args,
+            cwd=paths.APP_DIR,  # чтобы относительные bin/, lists/ резолвились
+            stdout=logf,
+            stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        time.sleep(2.0)
+        if proc.poll() is not None:
+            tail = _tail(log_path)
+            raise RuntimeError(
+                "winws.exe завершился с кодом {}.\n{}\n"
+                "Подсказка: запустите приложение от имени администратора "
+                "(нужен драйвер WinDivert).".format(
+                    proc.returncode, tail or "лог пуст — вероятно, не хватает прав."))
+    finally:
+        logf.close()
 
 
 def stop():

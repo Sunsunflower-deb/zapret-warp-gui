@@ -3,6 +3,7 @@ import getpass
 import os
 import shutil
 import subprocess
+import time
 
 
 # --- обнаружение warp-cli -----------------------------------------------
@@ -97,6 +98,14 @@ def run(cfg, *args):
     return subprocess.run(cmd, capture_output=True, text=True)
 
 
+def _err(r, what):
+    """Человекочитаемая причина падения warp-cli."""
+    txt = (r.stderr or r.stdout or "").strip()
+    if txt:
+        return "{}: {}".format(what, txt)
+    return "{}: код возврата {}".format(what, r.returncode)
+
+
 def apply_settings(cfg):
     run(cfg, "mode", cfg.get("warp_mode", "warp+doh"))
     run(cfg, "tunnel", "protocol", "set", cfg.get("warp_protocol", "MASQUE"))
@@ -109,9 +118,38 @@ def apply_settings(cfg):
         run(cfg, "tunnel", "endpoint", "reset")
 
 
-def connect(cfg):
+def connect(cfg, timeout=45):
+    """Подключить WARP и дождаться статуса Connected.
+
+    Возвращает итоговый статус. Бросает RuntimeError с реальной причиной,
+    если warp-cli упал или туннель не поднялся за timeout секунд
+    (Cloudflare One часто «застревает» на Connecting — см. hints).
+    """
+    # сбрасываем зависшее состояние (51% / Connecting)
+    run(cfg, "disconnect")
+    time.sleep(1)
+
     apply_settings(cfg)
-    run(cfg, "--accept-tos", "connect")
+
+    r = run(cfg, "--accept-tos", "connect")
+    if r.returncode != 0:
+        raise RuntimeError(_err(r, "warp-cli connect"))
+
+    last = ""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(2)
+        st = status(cfg)
+        last = st
+        if "Connected" in st:
+            return st.strip()
+    raise RuntimeError(
+        "WARP не вышел в Connected за {} с. Последний статус: {!r}.\n"
+        "Проверьте: 1) приложение запущено от администратора (WinDivert); "
+        "2) DPI-десинк реально работает (статус зелёный); "
+        "3) warp-cli registration show — аккаунт зарегистрирован; "
+        "4) на сети не режется UDP 443/MASQUE.".format(timeout, last)
+    )
 
 
 def disconnect(cfg):
@@ -121,3 +159,11 @@ def disconnect(cfg):
 def status(cfg):
     r = run(cfg, "status")
     return r.stdout.strip()
+
+
+def registration(cfg):
+    """Результат `warp-cli registration show` (пустая строка при ошибке)."""
+    if not installed():
+        return ""
+    r = run(cfg, "registration", "show")
+    return (r.stdout or r.stderr or "").strip()

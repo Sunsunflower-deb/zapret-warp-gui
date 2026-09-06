@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 
-from . import paths, warp
+from . import engine, paths, warp
 
 OK = "\u2705"
 BAD = "\u274c"
@@ -22,6 +22,12 @@ def _nft_ok():
     if os.name == "nt":
         return None  # не нужен на Windows
     return shutil.which("nft") is not None
+
+
+def _admin_ok():
+    if os.name != "nt":
+        return True  # root-права проверяются отдельно (root-helper)
+    return engine.is_admin()
 
 
 def run():
@@ -61,10 +67,25 @@ def run():
         add("root-helper.sh", os.path.isfile(os.path.join(paths.APP_DIR, "root-helper.sh")),
             "есть" if os.path.isfile(os.path.join(paths.APP_DIR, "root-helper.sh")) else "нет",
             "файл root-helper.sh отсутствует")
+    else:
+        add("Права администратора", _admin_ok(),
+            "есть" if _admin_ok() else "НЕТ",
+            "ПКМ по zapret-warp.exe → «Запуск от имени администратора» "
+            "(нужен для WinDivert и warp-cli)")
+        if os.path.isfile(engine.winws_log_path()):
+            tail = "… " + engine.winws_log_tail(3).replace("\n", " | ")
+            add("winws.log (хвост)", "error" not in tail.lower(), tail,
+                "если winws падает — смотри полный лог: "
+                + engine.winws_log_path())
 
     # --- WARP ---
     cli = warp.find_cli()
     add("warp-cli (WARP)", bool(cli), cli or "не найден", warp.install_guide())
+    if cli:
+        reg = warp.registration({})
+        reg_first = (reg.splitlines() or ["нет ответа"])[0][:80]
+        add("warp-cli регистрация", bool(reg.strip()), reg_first,
+            "откройте Cloudflare WARP/1.1.1.1 и войдите в аккаунт (free)")
 
     return report
 

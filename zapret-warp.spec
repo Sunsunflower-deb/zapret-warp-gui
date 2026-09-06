@@ -48,6 +48,8 @@ exe = EXE(
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,           # GUI без окна консоли
+    # exe сам запросит права администратора (нужны WinDivert и warp-cli)
+    uac_admin=True,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
