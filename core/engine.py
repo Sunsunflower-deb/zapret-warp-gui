@@ -9,6 +9,14 @@ from . import paths, strategy
 HELPER = os.path.join(paths.APP_DIR, "root-helper.sh")
 
 
+def _nowin():
+    """Windows: не порождать окно консоли у tasklist/taskkill (из windowed-GUI
+    иначе каждые 3 с мигает окно терминала)."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 def is_admin():
     """Запущены ли мы с правами администратора/root."""
     if os.name != "nt":
@@ -63,7 +71,7 @@ def is_running():
     if os.name == "nt":
         r = subprocess.run(
             ["tasklist", "/FI", "IMAGENAME eq winws.exe"],
-            capture_output=True, text=True,
+            capture_output=True, text=True, **_nowin(),
         )
         return "winws.exe" in r.stdout
     r = subprocess.run(["pgrep", "-f", "nfqws"], capture_output=True, text=True)
@@ -92,7 +100,7 @@ def _start_winws(all_args):
     «запущен», WARP оставался на 51%. Теперь stdout/stderr winws пишутся
     в лог, и через ~2 с проверяется, что процесс ещё жив.
     """
-    subprocess.run(["taskkill", "/IM", "winws.exe", "/F"], capture_output=True)
+    subprocess.run(["taskkill", "/IM", "winws.exe", "/F"], capture_output=True, **_nowin())
 
     log_path = winws_log_path()
     try:
@@ -123,7 +131,7 @@ def _start_winws(all_args):
 
 def stop():
     if os.name == "nt":
-        subprocess.run(["taskkill", "/IM", "winws.exe", "/F"], capture_output=True)
+        subprocess.run(["taskkill", "/IM", "winws.exe", "/F"], capture_output=True, **_nowin())
     else:
         _run_root("stop")
 

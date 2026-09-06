@@ -90,12 +90,20 @@ def _warp_user(cfg):
     return None
 
 
+def _no_window():
+    """Windows: не показывать окно консоли у дочерних процессов (иначе из
+    windowed-GUI каждые 3 с мигает окно терминала)."""
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
 def run(cfg, *args):
     user = _warp_user(cfg)
     cmd = [_cli()] + list(args)
     if user and user != getpass.getuser():
         cmd = ["sudo", "-u", user] + cmd
-    return subprocess.run(cmd, capture_output=True, text=True)
+    return subprocess.run(cmd, capture_output=True, text=True, **_no_window())
 
 
 def _err(r, what):
