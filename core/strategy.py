@@ -69,7 +69,11 @@ def parse(strategy_name, gamefilter_tcp=False, gamefilter_udp=False):
         raise ValueError("В стратегии не найдена команда winws.exe")
 
     cmd = _substitute(m.group(1), gamefilter_tcp, gamefilter_udp)
-    args = shlex.split(cmd, posix=not paths.IS_WINDOWS)
+    # Всегда posix=True: posix=False (Windows) НЕ снимает кавычки, и winws
+    # получает аргументы вида --hostlist="lists/..." целиком одним «именем» →
+    # file_open_test: cannot access hostlist file. После подстановок %BIN%/%LISTS%
+    # бэкслешей в cmd нет, поэтому posix=True безопасен и на Windows.
+    args = shlex.split(cmd, posix=True)
 
     wf_tcp = None
     wf_udp = None
