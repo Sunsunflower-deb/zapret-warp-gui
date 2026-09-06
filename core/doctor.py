@@ -77,6 +77,10 @@ def run():
             add("winws.log (хвост)", "error" not in tail.lower(), tail,
                 "если winws падает — смотри полный лог: "
                 + engine.winws_log_path())
+        m = warp.msi_path()
+        add("warp.msi (авто-установка WARP)", bool(m),
+            os.path.basename(m) if m else "нет — нужен ручной msi",
+            "положите warp.msi рядом с zapret-warp.exe (берётся из Release)")
 
     # --- WARP ---
     cli = warp.find_cli()

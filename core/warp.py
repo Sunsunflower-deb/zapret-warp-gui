@@ -3,7 +3,10 @@ import getpass
 import os
 import shutil
 import subprocess
+import sys
 import time
+
+from . import paths
 
 
 # --- обнаружение warp-cli -----------------------------------------------
@@ -37,6 +40,46 @@ def installed():
 
 def _cli():
     return find_cli() or ("warp-cli.exe" if os.name == "nt" else "warp-cli")
+
+
+# --- авто-установка из warp.msi (Windows) --------------------------------
+def msi_path():
+    """Путь к warp.msi рядом с exe/приложением (или None)."""
+    if os.name != "nt":
+        return None
+    dirs = []
+    if getattr(sys, "frozen", False):
+        dirs.append(os.path.dirname(os.path.abspath(sys.executable)))
+    dirs.append(paths.APP_DIR)
+    for d in dirs:
+        p = os.path.join(d, "warp.msi")
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def install_warp_msi(timeout=180):
+    """Тихая установка Cloudflare WARP из warp.msi рядом с exe.
+
+    Требует прав администратора (exe собран с uac_admin). Возвращает True,
+    если после установки warp-cli найден.
+    """
+    m = msi_path()
+    if not m:
+        return False
+    r = subprocess.run(
+        ["msiexec", "/i", m, "/quiet", "/norestart"],
+        capture_output=True, text=True, **_no_window(),
+    )
+    # 0 = успех, 3010 = успех + требуется перезагрузка
+    if r.returncode not in (0, 3010):
+        return False
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if installed():
+            return True
+        time.sleep(3)
+    return installed()
 
 
 # --- подсказки по установке ----------------------------------------------

@@ -216,12 +216,20 @@ class App:
         time.sleep(3)
         if c["warp_enabled"]:
             try:
+                if not warp.installed():
+                    if warp.msi_path():
+                        self._log("warp-cli не найден — устанавливаю Cloudflare WARP из warp.msi…")
+                        if warp.install_warp_msi():
+                            self._log("WARP установлен из warp.msi.")
+                        else:
+                            self._log("Не удалось установить WARP из warp.msi — см. «Проверка».")
+                    else:
+                        self._log("warp-cli не найден — положите warp.msi рядом с "
+                                  "zapret-warp.exe или установите Cloudflare WARP (см. «Проверка»).")
                 if warp.installed():
                     self._log("Подключение WARP…")
                     st = warp.connect(c)
                     self._log("WARP подключен: " + st)
-                else:
-                    self._log("warp-cli не найден — пропуск WARP")
             except Exception as e:
                 self._log("Ошибка WARP: " + str(e))
         self._log("Готово.")

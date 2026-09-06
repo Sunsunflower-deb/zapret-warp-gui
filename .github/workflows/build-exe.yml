@@ -23,17 +23,26 @@ jobs:
       - name: Сборка .exe
         run: python -m PyInstaller zapret-warp.spec --noconfirm --clean
 
+      # Официальный установщик Cloudflare WARP — кладём рядом с exe,
+      # приложение само поставит его, если warp-cli не найден.
+      - name: Скачивание warp.msi (авто-установщик WARP)
+        run: curl -L -o warp.msi https://1111-releases.cloudflareclient.com/windows/Cloudflare_WARP_Release-x64.msi
+
       - name: Загрузка артефакта
         uses: actions/upload-artifact@v4
         with:
           name: zapret-warp-windows
-          path: dist/zapret-warp.exe
+          path: |
+            dist/zapret-warp.exe
+            warp.msi
 
-      # Автопубликация в GitHub Releases при пуше тега v*.
-      # На вкладке Releases появится черновик/релиз с zapret-warp.exe.
+      # Автопубликация в GitHub Releases при пуше тега v*:
+      # релиз получает и zapret-warp.exe, и warp.msi.
       - name: Публикация Release (тег v*)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/zapret-warp.exe
+          files: |
+            dist/zapret-warp.exe
+            warp.msi
           generate_release_notes: true
