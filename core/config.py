@@ -5,14 +5,17 @@ import os
 from . import paths
 
 DEFAULTS = {
-    "strategy": "general_SIMPLE_FAKE.bat",
+    # WARP-only Simple Fake: минимальный десинк (только Cloudflare WARP),
+    # TCP h2 (обходит троттлинг/блок QUIC UDP-443 на «жёстких» сетях),
+    # режим без DoH (DoH-домен может резаться по SNI до поднятия туннеля).
+    "strategy": "warp_simple_fake.bat",
     "interface": "any",
     "gamefilter_tcp": False,
     "gamefilter_udp": False,
     "warp_enabled": True,
-    "warp_mode": "warp+doh",
+    "warp_mode": "warp",
     "warp_protocol": "MASQUE",
-    "warp_masque": "h3-with-h2-fallback",
+    "warp_masque": "h2-only",
     "warp_endpoint": "",
     "warp_user": "",
 }
