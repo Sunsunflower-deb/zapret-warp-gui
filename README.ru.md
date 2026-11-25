@@ -196,8 +196,15 @@ PyInstaller не умеет кросс-компиляцию — собирайт
 ```bat
 pip install pyinstaller
 pyinstaller zapret-warp.spec --noconfirm --clean
-:: результат: dist\zapret-warp.exe
+:: результат: dist\zapret-warp.exe, dist\zapret-warp-cli.exe
 ```
+
+Один spec собирает два файла:
+
+| Файл | Что это |
+|---|---|
+| `zapret-warp.exe` | GUI, сам просит права администратора (драйвер WinDivert) |
+| `zapret-warp-cli.exe` | CLI: `check`, `status`, `doctor`, `tune`, `start`, `stop`. Намеренно **без** `uac_admin`, чтобы `status`/`check` работали без прав; для `start`/`tune` запускайте из терминала от администратора |
 
 `zapret-warp.spec` кладёт внутрь `winws.exe`, `WinDivert.dll`, `WinDivert64.sys`,
 `cygwin1.dll` (winws — Cygwin-сборка), `*.bin`, `lists/`, `strategies/`. Если рядом с
@@ -207,6 +214,10 @@ pyinstaller zapret-warp.spec --noconfirm --clean
 Антивирус/SmartScreen может ругаться на бинарь: WinDivert — это драйвер перехвата
 пакетов, к нему относятся настороженно. Если доверяете сборке — добавьте исключение
 для папки приложения.
+
+**Почему CLI — отдельный .exe:** `tune` и `check` живут в CLI, а сборка PyInstaller с
+единственной точкой входа `main.py` файл `cli.py` не содержит (проверено: модуля
+`core.tuner` в GUI-архиве не было).
 
 ## Тесты
 

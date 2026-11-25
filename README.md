@@ -193,8 +193,15 @@ PyInstaller does not cross-compile — build on Windows (or via GitHub Actions).
 ```bat
 pip install pyinstaller
 pyinstaller zapret-warp.spec --noconfirm --clean
-:: result: dist\zapret-warp.exe
+:: results: dist\zapret-warp.exe, dist\zapret-warp-cli.exe
 ```
+
+Two executables are produced from one spec:
+
+| File | What it is |
+|---|---|
+| `zapret-warp.exe` | GUI, requests administrator rights (WinDivert driver) |
+| `zapret-warp-cli.exe` | CLI: `check`, `status`, `doctor`, `tune`, `start`, `stop`. Deliberately **without** `uac_admin`, so `status`/`check` work unelevated — run it from an elevated terminal for `start`/`tune` |
 
 `zapret-warp.spec` bundles `winws.exe`, `WinDivert.dll`, `WinDivert64.sys`,
 `cygwin1.dll` (winws is a Cygwin build), `*.bin`, `lists/`, `strategies/`. If you put
@@ -203,6 +210,10 @@ rebuilding).
 
 Anti-virus / SmartScreen may flag the binary: WinDivert is a packet driver and is
 commonly mistrusted. Add an exclusion for the app folder if you trust the build.
+
+**Why the CLI has to be a separate .exe:** `tune` and `check` are CLI features, and a
+PyInstaller build with a single `main.py` entry point simply does not contain `cli.py`
+(verified: `core.tuner` was missing from the GUI archive).
 
 ## Tests
 
