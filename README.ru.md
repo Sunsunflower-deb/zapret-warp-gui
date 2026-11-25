@@ -189,3 +189,4 @@ python -m pytest -q
 | `file_open_test: cannot access hostlist file` | неверный рабочий каталог | запускайте через приложение, а не копируйте команду руками |
 | WARP подключён, сайты не открываются | режут сам WARP, десинк не применяется | сверьте hostlist стратегии с endpoint из `warp-cli settings` |
 | `doctor` печатает `[OK]`/`[!!]` | консоль не умеет эмодзи (cp1251) | это нормально, вывод корректный |
+| `nfqws: unknown option --dpi-desync-fake-tls-mod` | старая сборка nfqws в `bin/` | уберите `--dpi-desync-fake-tls-mod` из `strategies/warp_simple_fake.bat`; бинарь в комплекте сжат UPX, поэтому его возможности заранее не проверить |

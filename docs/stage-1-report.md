@@ -46,6 +46,17 @@
 * `python cli.py strategies` — 24 уникальных имени.
 * `python -c "import main"` — GUI-модуль импортируется.
 * `bash -n root-helper.sh` — синтаксис валиден.
+* **Флаги в `winws.exe` реально есть.** Бинарь из `bin/` знает всё, что мы теперь
+  используем: `--dpi-desync-fake-tls-mod` (и модификаторы `rndsni`, `dupsid`,
+  `padencap`), `--dpi-desync-autottl`, `--dpi-desync-cutoff`, `--dpi-desync-repeats`,
+  `--dpi-desync-fooling`, режимы `hostfakesplit`, `multisplit`, `multidisorder`,
+  `fakedsplit`, `fakeddisorder`, а также `--dpi-desync-fake-wireguard`,
+  `--hostlist-auto` и `--ssid-filter`. Проверено чтением строк бинаря и закреплено
+  тестом `tests/test_binaries.py`.
+* **`nfqws` (Linux) проверить так нельзя**: он сжат UPX, строки недоступны. Если
+  какая-то старая сборка не знает `--dpi-desync-fake-tls-mod`, nfqws стартует с
+  ошибкой — тогда этот флаг надо убрать из WARP-стратегии (см. «Если не работает»
+  в README). Полноценный capability probing — задача 3.1.
 * Фактический argv WARP-стратегии:
 
 ```

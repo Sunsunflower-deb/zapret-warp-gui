@@ -185,3 +185,4 @@ survives a cp1251 console.
 | `file_open_test: cannot access hostlist file` | wrong working directory | start via the app, not by copying the command manually |
 | WARP connects, sites do not open | WARP itself is throttled, desync not applied | confirm the strategy hostlist matches the endpoint from `warp-cli settings` |
 | `doctor` prints `[OK]`/`[!!]` | console cannot render emoji (cp1251) | expected; output is still valid |
+| `nfqws: unknown option --dpi-desync-fake-tls-mod` | older `nfqws` in `bin/` | remove `--dpi-desync-fake-tls-mod` from `strategies/warp_simple_fake.bat`; the bundled binary is UPX-packed, so its capabilities cannot be inspected in advance |
