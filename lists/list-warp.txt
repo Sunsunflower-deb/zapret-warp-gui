@@ -1,4 +1,3 @@
 cloudflareclient.com
-cloudflare.com
 cloudflare-dns.com
 one.one.one.one

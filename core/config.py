@@ -12,6 +12,14 @@ DEFAULTS = {
     "interface": "any",
     "gamefilter_tcp": False,
     "gamefilter_udp": False,
+    # Значение плейсхолдера %Fooling% в стратегиях.
+    # "auto" = по платформе: md5sig на Windows, "ts,md5sig" на Linux.
+    # `ts` работает только при включённых TCP timestamps (в Windows они
+    # выключены по умолчанию), а без работающего fooling фейковый пакет
+    # доходит до реального сервера и ломает TLS-рукопожатие.
+    # Явное значение ("ts", "md5sig", "badseq", "md5sig,badseq") — способ
+    # откатиться, если на конкретной сети работает только старый вариант.
+    "fooling": "auto",
     "warp_enabled": True,
     "warp_mode": "warp",
     "warp_protocol": "MASQUE",

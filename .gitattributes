@@ -1,0 +1,8 @@
+# Защита от «неправильных» переводов строк.
+# root-helper.sh с CRLF не запускается на Linux (bad interpreter),
+# а .bat с LF ломается в cmd.exe на продолжениях строк через «^».
+*.sh text eol=lf
+*.bat text eol=crlf
+
+# Бинарные файлы — не трогать (winws.exe, WinDivert, Cygwin DLL, фейки *.bin)
+bin/* -text

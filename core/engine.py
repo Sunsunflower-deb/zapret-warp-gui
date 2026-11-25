@@ -8,6 +8,10 @@ from . import paths, strategy
 
 HELPER = os.path.join(paths.APP_DIR, "root-helper.sh")
 
+# nfqws пишет сюда PID (--pidfile). Файл нужен, чтобы останавливать именно
+# свой процесс, а не любой `nfqws` в системе (раньше был `pkill -f nfqws`).
+PIDFILE = "/run/zapret-warp/nfqws.pid"
+
 
 def _nowin():
     """Windows: не порождать окно консоли у tasklist/taskkill (из windowed-GUI
@@ -26,6 +30,27 @@ def is_admin():
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
+
+
+def ensure_tcp_timestamps():
+    """Включить TCP timestamps (Windows) для работы `--dpi-desync-fooling=ts`.
+
+    `ts` подделывает TSval, и сервер отбрасывает фейк. TCP timestamps
+    генерирует ОС, а в Windows они выключены по умолчанию — тогда fooling
+    не работает, и 8 копий чужого ClientHello уходят в реальный сервер.
+    Команда идемпотентна, но требует прав администратора.
+    Возвращает True, если настройка применилась (на Linux — всегда True).
+    """
+    if os.name != "nt":
+        return True
+    try:
+        r = subprocess.run(
+            ["netsh", "interface", "tcp", "set", "global", "timestamps=enabled"],
+            capture_output=True, text=True, **_nowin(),
+        )
+    except OSError:
+        return False
+    return r.returncode == 0
 
 
 def winws_log_path():
@@ -47,10 +72,6 @@ def _tail(path, n=15):
         return ""
 
 
-def _sudo():
-    return [] if os.geteuid() == 0 else ["sudo"]
-
-
 def _run_root(*args):
     """Запустить root-helper.sh (Linux) с правами root.
 
@@ -67,6 +88,33 @@ def _run_root(*args):
     return r
 
 
+def nfqws_pid():
+    """PID работающего nfqws из pidfile (None, если файла нет/битый)."""
+    try:
+        with open(PIDFILE, encoding="utf-8") as f:
+            return int(f.read().strip()) or None
+    except (OSError, ValueError):
+        return None
+
+
+def _pid_alive(pid):
+    """Жив ли процесс с таким PID.
+
+    Только POSIX. На Windows `os.kill(pid, 0)` не «проверяет» процесс, а
+    убивает его (`TerminateProcess`), поэтому туда не идём: проверка
+    десинка на Windows делается через tasklist в is_running().
+    """
+    if os.name == "nt":
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def is_running():
     if os.name == "nt":
         r = subprocess.run(
@@ -74,13 +122,23 @@ def is_running():
             capture_output=True, text=True, **_nowin(),
         )
         return "winws.exe" in r.stdout
-    r = subprocess.run(["pgrep", "-f", "nfqws"], capture_output=True, text=True)
+
+    pid = nfqws_pid()
+    if pid:
+        return _pid_alive(pid)
+    # Фолбэк для установок, запущенных до появления pidfile
+    r = subprocess.run(
+        ["pgrep", "-f", "bin/nfqws|/nfqws "], capture_output=True, text=True
+    )
     return r.returncode == 0
 
 
-def start(name, interface, gamefilter_tcp, gamefilter_udp):
-    p = strategy.parse(name, gamefilter_tcp, gamefilter_udp)
+def start(name, interface, gamefilter_tcp, gamefilter_udp, fooling=None):
+    """Поднять десинк. Возвращает разобранную стратегию (для лога/диагностики)."""
+    p = strategy.parse(name, gamefilter_tcp, gamefilter_udp, fooling=fooling)
     if os.name == "nt":
+        if "ts" in p["fooling"]:
+            ensure_tcp_timestamps()
         _start_winws(p["all_args"])
     else:
         _run_root(
@@ -90,6 +148,7 @@ def start(name, interface, gamefilter_tcp, gamefilter_udp):
             interface or "any",
             *p["filter_args"],
         )
+    return p
 
 
 def _start_winws(all_args):
@@ -145,10 +204,28 @@ def list_interfaces():
         return ["any"]
 
 
+def _helper_is_safe():
+    """root-helper.sh не должен быть writable для группы/всех.
+
+    Иначе NOPASSWD-правило в sudoers даёт любому процессу этого
+    пользователя root: достаточно дописать строку в скрипт.
+    """
+    try:
+        st = os.stat(HELPER)
+    except OSError:
+        return False
+    return not (st.st_mode & 0o022)
+
+
 def setup_root():
     """Одноразовая настройка NOPASSWD для root-helper (нужен root)."""
     if os.name == "nt":
         raise RuntimeError("setup нужен только на Linux")
+    if not _helper_is_safe():
+        raise RuntimeError(
+            "root-helper.sh доступен на запись группе/остальным — это дыра "
+            "в root: исправьте права (chmod go-w) и повторите.\n  " + HELPER
+        )
     import getpass
     user = os.environ.get("SUDO_USER") or os.environ.get("DOAS_USER") \
         or getpass.getuser()

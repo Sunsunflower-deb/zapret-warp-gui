@@ -3,11 +3,28 @@ import os
 import shutil
 import sys
 
-from . import engine, paths, warp
+from . import config, engine, paths, strategy, warp
 
 OK = "\u2705"
 BAD = "\u274c"
 WARN = "\u26a0\ufe0f"
+
+# ASCII-замена для консолей, которые не умеют в Unicode.
+# На русской Windows консоль по умолчанию cp866/cp1251, и печать «✅» падала
+# с UnicodeEncodeError — `cli.py doctor` просто не работал.
+OK_ASCII = "[OK]"
+BAD_ASCII = "[!!]"
+WARN_ASCII = "[!] "
+
+
+def _unicode_icons():
+    """Умеет ли текущий stdout печатать ✅ вообще."""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        OK.encode(enc)
+    except (UnicodeEncodeError, LookupError):
+        return False
+    return True
 
 
 def _tk_ok():
@@ -82,6 +99,23 @@ def run():
             os.path.basename(m) if m else "нет — нужен ручной msi",
             "положите warp.msi рядом с zapret-warp.exe (берётся из Release)")
 
+    # --- параметры десинка ---
+    cfg = config.load()
+    fooling = strategy.resolve_fooling(cfg.get("fooling"))
+    configured = str(cfg.get("fooling") or "auto")
+    add("fooling (%Fooling%)", True,
+        f"{fooling}  (config: {configured})")
+    if os.name == "nt" and "ts" in fooling:
+        add("TCP timestamps для fooling=ts", False,
+            "в Windows таймстампы выключены по умолчанию → фейк дойдёт до сервера",
+            "netsh interface tcp set global timestamps=enabled "
+            "или выберите fooling=md5sig")
+    ipset = os.path.join(paths.LISTS_DIR, "ipset-all.txt")
+    if os.path.isfile(ipset) and not strategy.has_entries(ipset):
+        add("ipset-all.txt", True,
+            "пуст — правила с --ipset= отключены (нормально для WARP-only; "
+            "см. lists/README.md)")
+
     # --- WARP ---
     cli = warp.find_cli()
     add("warp-cli (WARP)", bool(cli), cli or "не найден", warp.install_guide())
@@ -94,11 +128,17 @@ def run():
     return report
 
 
-def format_report(report):
+def format_report(report, unicode_icons=None):
+    """Текстовый отчёт. unicode_icons=None — решить по возможностям консоли."""
+    if unicode_icons is None:
+        unicode_icons = _unicode_icons()
+    if unicode_icons:
+        icons = {"ok": OK, "bad": BAD, "warn": WARN}
+    else:
+        icons = {"ok": OK_ASCII, "bad": BAD_ASCII, "warn": WARN_ASCII}
     lines = ["=== Проверка готовности zapret-warp ===", ""]
     for name, status, detail, fix in report:
-        icon = {"ok": OK, "bad": BAD, "warn": WARN}[status]
-        lines.append(f"{icon} {name}: {detail}")
+        lines.append(f"{icons[status]} {name}: {detail}")
     lines.append("")
     need_fix = [r for r in report if r[1] == "bad"]
     if need_fix:

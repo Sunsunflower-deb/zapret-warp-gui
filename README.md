@@ -1,131 +1,187 @@
 # zapret-warp-gui
 
-Cross-platform (Linux + Windows) app: **DPI desync (Simple Fake) + Cloudflare WARP** with a GUI — all in one compact package.
+Cross-platform (Linux + Windows) GUI/CLI for **DPI desync (zapret) + Cloudflare WARP**.
+The desync makes the WARP handshake survive networks that block or throttle
+`*.cloudflareclient.com`; WARP then tunnels the rest.
 
-- **DPI desync**: `nfqws` (Linux) / `winws.exe` (Windows) — `general_SIMPLE_FAKE.bat` strategy.
-- **VPN**: Cloudflare WARP (`warp-cli` / `warp-cli.exe`), "HTTPS + UDP" mode (MASQUE: HTTP/3 + HTTP/2 fallback).
+> Russian version: [README.ru.md](README.ru.md)
 
-> Русская версия: [README.ru.md](README.ru.md)
+**Current version: 1.1.0** — see [CHANGELOG.md](CHANGELOG.md).
 
-## Layout
+## Why the order matters
 
-```
-zapret-warp-gui/
-├── main.py              # GUI (tkinter)
-├── cli.py               # CLI: start/stop/status/doctor/setup/key/strategies
-├── root-helper.sh       # privileged nfqws/nft operations (Linux)
-├── core/                # backend (config, strategy, engine, warp, doctor, wgcf)
-├── bin/                 # nfqws (Linux), winws.exe+WinDivert+*.bin (Windows),
-│                        # wgcf + wireproxy (embedded WARP for unrestricted networks)
-├── lists/               # host / ipset lists
-├── strategies/          # .bat strategies
-├── wgcf/                # embedded WARP account (wgcf-account + profile) — private, gitignored
-├── zapret-warp.spec     # PyInstaller spec for the Windows .exe
-├── build_windows.bat    # build the .exe on Windows
-└── config.json          # created on first run
-```
+DPI desync first, WARP second. Without desync the TLS handshake to the WARP endpoint
+does not complete on a filtered network, so `warp-cli` stays on `Connecting`. The app
+does this order for you (`engine.start()` → `warp.connect()`).
 
-## Quick start (out of the box)
+## Quick start
 
 ```bash
-# 1. Check that everything is present (Python, binaries, lists, warp-cli, tkinter)
-python3 cli.py doctor
-
-# 2. If something is missing — doctor prints the exact command to install it
-#    (e.g. Cloudflare WARP's warp-cli or tkinter).
-
-# 3. Run
-python3 cli.py start        # nfqws (asks for sudo) + WARP
-# or the GUI:
-python3 main.py             # the "Check" button = same doctor
+python cli.py doctor      # readiness check, prints the exact fix for each problem
+python cli.py start       # desync (sudo on Linux) + WARP
+python cli.py status
+python cli.py stop
+python main.py            # GUI
 ```
 
-`doctor` reports ✅/❌ for every component plus the **exact fix command** for your
-distro (Arch/Debian/Fedora/Windows).
+`--version` prints the version:
+
+```bash
+python cli.py --version
+```
 
 ## Requirements
 
 **Linux**
+
 ```bash
-sudo pacman -S tk nftables          # Arch
-# or: sudo apt install python3-tk nftables   # Debian/Ubuntu
+sudo pacman -S tk nftables            # Arch
+sudo apt install python3-tk nftables  # Debian/Ubuntu
 ```
-- **Cloudflare WARP** (`warp-cli`) is required: `doctor` tells you how to install it
-  (Arch: `yay -S cloudflare-warp-bin`; Debian/Ubuntu: Cloudflare's official repo).
-  The app auto-detects warp-cli (in PATH and in standard install paths).
-- The GUI must run as your **normal user** (NOT via sudo — on Wayland/Hyprland a
-  root window can't reach the display). Privileges for nfqws/nft go through
-  `root-helper.sh`:
-  - launched from a terminal: sudo asks for the password there;
-  - launched by double-click: run once `sudo python3 cli.py setup`
-    (NOPASSWD rule for root-helper.sh only).
+
+* Cloudflare WARP (`warp-cli`) is required — `doctor` prints the install command for
+  your distro.
+* The GUI must run as your **normal user** (a root window cannot reach the display on
+  Wayland), privileges for `nft`/`nfqws` go through `root-helper.sh`:
+  * from a terminal `sudo` asks for the password there;
+  * from a double-click, run once `sudo python3 cli.py setup`
+    (NOPASSWD for `root-helper.sh` only).
 
 **Windows**
-- Python 3.9+ (tkinter is bundled with the official installer).
-- Cloudflare WARP (warp-cli.exe): install the official Cloudflare WARP app.
-- Run **as administrator** (WinDivert driver needed by winws.exe).
 
-## Usage
+* Python 3.9+ (tkinter ships with the official installer).
+* Cloudflare WARP installed (`warp-cli.exe`).
+* Run **as administrator**: `winws.exe` needs the WinDivert driver, `warp-cli` needs
+  elevation.
 
-**CLI**
-```bash
-python3 cli.py doctor       # readiness check + install hints
-python3 cli.py status       # nfqws + WARP status
-python3 cli.py start        # nfqws → WARP (order is automatic)
-python3 cli.py stop
-python3 cli.py setup        # (Linux) NOPASSWD for root-helper: sudo python3 cli.py setup
-python3 cli.py key          # obtain a WARP key (wgcf) — obfuscation is built in:
-                            #   auto-starts nfqws → wgcf register → wgcf generate
-python3 cli.py key --license-key <KEY>   # bind this device to an existing account
-python3 cli.py key --force               # register a brand-new account
-python3 cli.py strategies
+## CLI
+
+| Command | What it does |
+|---|---|
+| `doctor` | env check (binaries, lists, privileges, `warp-cli`, fooling) + fixes |
+| `status` | desync state, active strategy + fooling, WARP status |
+| `start` | desync → WARP; prints the effective `argv` |
+| `stop` | stop WARP, stop desync, clear firewall table |
+| `strategies` | list available `.bat` strategies |
+| `setup` | (Linux) install the NOPASSWD rule for `root-helper.sh` |
+| `key` | register a WARP account via `wgcf` (needs desync running) |
+| `--version` | print the version |
+| `--fooling <v>` | override `config.json → fooling` for this run |
+
+## Configuration (`config.json`, created on first run)
+
+| Key | Default | Meaning |
+|---|---|---|
+| `strategy` | `warp_simple_fake.bat` | `.bat` from `strategies/` |
+| `interface` | `any` | outbound interface (Linux; `any` = all) |
+| `fooling` | `auto` | value of `%Fooling%`: `auto` = `md5sig` on Windows, `ts,md5sig` on Linux. Any zapret fooling list works (`md5sig`, `badseq`, `md5sig,badseq`, `ts`, …) |
+| `gamefilter_tcp` / `gamefilter_udp` | `false` | substitute `%GameFilterTCP%`/`%GameFilterUDP%` with game port ranges |
+| `warp_enabled` | `true` | connect WARP after desync |
+| `warp_mode` | `warp` | `warp`, `warp+doh`, `doh`, `dot`, `warp+dot`, `proxy`, `tunnel_only` |
+| `warp_protocol` | `MASQUE` | `MASQUE` or `WireGuard` |
+| `warp_masque` | `h2-only` | `h3-with-h2-fallback`, `h3-only`, `h2-only` |
+| `warp_endpoint` | `""` | custom endpoint (`warp-cli tunnel endpoint set`), empty = reset |
+
+## Masking: what the strategy actually does and why
+
+The whole point is that the DPI must not read the SNI `*.cloudflareclient.com` from the
+WARP handshake. Version 1.1 fixes four things that made the app *easier* to detect than
+plain TLS:
+
+| Parameter | Before | Now | Why |
+|---|---|---|---|
+| `--dpi-desync-fooling` | `ts` hardcoded | `%Fooling%` → `md5sig` on Windows | `ts` requires TCP timestamps, and **Windows has them off by default**. Without a working fooling technique the fake packet reaches the real Cloudflare server and breaks the handshake (the usual "stuck on Connecting") |
+| `--dpi-desync-repeats` | `8` | `2` | 8 byte-identical ClientHellos per connection is a signature, not camouflage (and ~5.5 KB of junk per connection) |
+| `--dpi-desync-fake-tls-mod` | not set | `rnd,dupsid` | when a custom fake is supplied, zapret **disables** its default `rnd,rndsni,dupsid` randomisation. `rnd` randomises `random`/`session_id` per request, `dupsid` copies the real session id, so the fake looks like a retransmission |
+| `--dpi-desync-cutoff` / `--dpi-desync-autottl` | none | `n4` + autottl | desync only the first packets; TTL is chosen so the fake passes the DPI but never reaches the server (does not depend on timestamps) |
+
+Hostlist scope: `lists/list-warp.txt` contains only hosts that actually belong to the
+tunnel (`cloudflareclient.com`, `cloudflare-dns.com`, `one.one.one.one`). A broad
+`cloudflare.com` would pull every Cloudflare-fronted site into the desync.
+
+Two more facts worth knowing:
+
+* `lists/ipset-all.txt` is **empty by design** (it used to hold `203.0.113.113/32`, an
+  RFC 5737 test address, so every `--ipset=` rule matched nothing). The parser now drops
+  rules whose only scope was that dead list — dropping just `--ipset=` would have made
+  `--filter-tcp=80,443,8443` desync *all* traffic. Fill the file with real CIDRs and the
+  rules come back. See [lists/README.md](lists/README.md).
+* Strategies are `.bat` files from upstream zapret. The parser (`core/strategy.py`)
+  removes their copy-paste artifacts: an isolated `-` token, `%~dp0bin\` (wrong directory),
+  and `call service.bat` lines for a script that does not exist in this repo.
+
+## Project layout
+
+```
+main.py / cli.py          GUI (tkinter) and CLI
+core/config.py            config.json
+core/strategy.py          .bat → argv (quotes, %BIN%, %LISTS%, %Fooling%, GameFilter, dead ipset)
+core/engine.py            winws.exe (Windows) / nfqws via root-helper.sh + nft (Linux)
+core/warp.py              warp-cli: status/mode/protocol/connect with real error messages
+core/wgcf.py              WARP account registration (optional, `cli.py key`)
+core/doctor.py            readiness report (ASCII icons on narrow consoles)
+core/paths.py             portable layout: next to the .exe → _MEIPASS
+root-helper.sh            privileged nft + nfqws start/stop (Linux)
+bin/                      nfqws, winws.exe, WinDivert, cygwin1.dll, *.bin fakes
+lists/                    host / ipset lists (see lists/README.md)
+strategies/               .bat strategies from upstream zapret
+tests/                    pytest suite (runs against the real strategies and lists)
 ```
 
-**Obtaining a WARP key on any device.** Registration uses HTTPS to
-`api.cloudflareclient.com`, and nfqws (Simple Fake) obfuscates `cloudflareclient.com` —
-so `cli.py key` works **natively, with no pre-existing tunnel**. Every device needs
-its own registration, but you can bind them all to one account using the
-`license_key` from `wgcf/wgcf-account.toml`. Keys are stored in `wgcf/`
-(gitignored — they are private).
-
-**GUI** — `python3 main.py` (Linux) / `python main.py` (Windows).
-
-## Order matters
-
-**nfqws/winws first, then WARP.** The Simple Fake strategy obfuscates the WARP
-handshake to `*.cloudflareclient.com` (domain present in `lists/list-general.txt`),
-so WARP cannot connect without the desync running. The app handles this automatically.
+* Windows: `winws.exe` with WinDivert; relative `bin/`, `lists/` resolve from the app dir.
+* Linux: `root-helper.sh` (sudo) creates the `inet zapretunix` nft table, then starts
+  `nfqws --daemon --pidfile=/run/zapret-warp/nfqws.pid`. Ports and interface are
+  validated before they reach `nft`; stop kills only our own process (by pidfile),
+  not every `nfqws` on the machine.
 
 ## Windows: building the .exe
 
-PyInstaller does not cross-compile — **the .exe must be built on Windows**
-(or via GitHub Actions, see below).
+PyInstaller does not cross-compile — build on Windows (or via GitHub Actions).
 
-**Locally on Windows:**
 ```bat
-:: copy the project folder to Windows, then in cmd:
 pip install pyinstaller
 pyinstaller zapret-warp.spec --noconfirm --clean
 :: result: dist\zapret-warp.exe
 ```
-Or simply double-click **`build_windows.bat`** (it installs PyInstaller and builds).
 
-`zapret-warp.spec` bundles everything into the .exe: `winws.exe`, `WinDivert.dll`,
-`WinDivert64.sys`, `cygwin1.dll` (required — winws is a Cygwin build), `*.bin`,
-`lists/`, `strategies/`. If you place `bin/ lists/ strategies/` folders next to the
-.exe, they are used instead (editable lists/strategies without rebuilding).
+`zapret-warp.spec` bundles `winws.exe`, `WinDivert.dll`, `WinDivert64.sys`,
+`cygwin1.dll` (winws is a Cygwin build), `*.bin`, `lists/`, `strategies/`. If you put
+`bin/ lists/ strategies/` next to the `.exe`, those are used instead (edit lists without
+rebuilding).
 
-**Or via GitHub Actions** (no local Windows needed): push the repo to GitHub →
-Actions tab → **build-exe** workflow → Run → download the `zapret-warp-windows` artifact.
+Anti-virus / SmartScreen may flag the binary: WinDivert is a packet driver and is
+commonly mistrusted. Add an exclusion for the app folder if you trust the build.
 
-## How it works
+## Tests
 
-- Strategies are `.bat` files with `winws.exe` commands. The `core/strategy.py`
-  parser extracts the arguments and substitutes **relative** `bin/`, `lists/`
-  paths (important: nfqws drops privileges to nobody and reads files from its cwd).
-- Linux: `root-helper.sh` (sudo) → nftables rules + `nfqws --daemon`.
-- Windows: `winws.exe` directly (WinDivert intercepts traffic, no firewall setup).
-- `wgcf/` + `bin/wgcf` + `bin/wireproxy` — embedded WARP (WireGuard) for networks
-  where UDP 2408 is not blocked by the ISP. On restrictive networks (like the
-  author's) only the official MASQUE client works, so the app manages the system
-  warp-cli by default.
+```bash
+pip install -r requirements-dev.txt
+python -m ruff check .
+python -m pytest -q
+```
+
+The suite runs against the **real** `.bat` files and lists in the repo, so it also guards
+the data: no case-colliding strategy names (they used to lose a file on Windows), no
+leftover `%GameFilter%`, no literal `ts` fooling, no dead `--ipset` rules, and `doctor`
+survives a cp1251 console.
+
+## Known limitations
+
+* `nfqws` runs as **root** (it needs NFQUEUE). That is how upstream zapret works; the app
+  does not drop privileges. `cli.py setup` refuses to install the NOPASSWD rule if
+  `root-helper.sh` is group/world-writable.
+* The `wgcf` + `wireproxy` path (WireGuard WARP for networks where UDP 2408 is not
+  blocked) is **not implemented** in 1.1 — `bin/` does not ship those binaries. Only the
+  official `warp-cli` transport is used.
+* WARP is a single domain and a single ASN. If `cloudflareclient.com` is blocked by IP,
+  no amount of desync helps.
+
+## Troubleshooting
+
+| Symptom | Likely cause | What to do |
+|---|---|---|
+| WARP stuck on `Connecting` / 51 % | fake packets reached the server (fooling ineffective) | check `fooling` in `doctor`; on Windows use `md5sig` or enable timestamps |
+| `winws.exe завершился с кодом …` | not elevated / WinDivert blocked by AV | run as administrator, add a Defender exclusion |
+| `file_open_test: cannot access hostlist file` | wrong working directory | start via the app, not by copying the command manually |
+| WARP connects, sites do not open | WARP itself is throttled, desync not applied | confirm the strategy hostlist matches the endpoint from `warp-cli settings` |
+| `doctor` prints `[OK]`/`[!!]` | console cannot render emoji (cp1251) | expected; output is still valid |

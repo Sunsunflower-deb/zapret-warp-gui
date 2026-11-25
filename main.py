@@ -4,21 +4,25 @@ import queue
 import threading
 import time
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
 
 from core import config, doctor, engine, strategy, warp
+from core.version import __version__
 
 WARP_MODES = ["warp+doh", "warp", "doh", "dot", "warp+dot", "proxy", "tunnel_only"]
 WARP_PROTOCOLS = ["MASQUE", "WireGuard"]
 WARP_MASQUE = ["h3-with-h2-fallback", "h3-only", "h2-only"]
+# Значения %Fooling%: auto = по платформе (md5sig на Windows, ts+md5sig на Linux).
+# Явный выбор — способ откатиться, если на конкретной сети работает только он.
+FOOLING_MODES = ["auto", "md5sig", "md5sig,badseq", "badseq", "ts", "ts,md5sig"]
 
 
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("zapret-warp — Simple Fake + Cloudflare WARP")
-        self.root.geometry("640x560")
-        self.root.minsize(560, 500)
+        self.root.title("zapret-warp " + __version__ + " — Simple Fake + Cloudflare WARP")
+        self.root.geometry("640x600")
+        self.root.minsize(560, 540)
 
         self.cfg = config.load()
         self.q = queue.Queue()
@@ -55,7 +59,8 @@ class App:
         cfg = ttk.LabelFrame(self.root, text="Настройки")
         cfg.pack(fill="x", **pad)
 
-        row = ttk.Frame(cfg); row.pack(fill="x", **pad)
+        row = ttk.Frame(cfg)
+        row.pack(fill="x", **pad)
         ttk.Label(row, text="Стратегия:").pack(side="left")
         self.var_strategy = tk.StringVar(value=self.cfg["strategy"])
         self.cmb_strategy = ttk.Combobox(
@@ -64,7 +69,8 @@ class App:
         )
         self.cmb_strategy.pack(side="left", padx=6)
 
-        row = ttk.Frame(cfg); row.pack(fill="x", **pad)
+        row = ttk.Frame(cfg)
+        row.pack(fill="x", **pad)
         ttk.Label(row, text="Интерфейс:").pack(side="left")
         self.var_iface = tk.StringVar(value=self.cfg["interface"])
         self.cmb_iface = ttk.Combobox(
@@ -72,6 +78,18 @@ class App:
             state="readonly", width=12,
         )
         self.cmb_iface.pack(side="left", padx=6)
+
+        row = ttk.Frame(cfg)
+        row.pack(fill="x", **pad)
+        ttk.Label(row, text="Fooling:").pack(side="left")
+        self.var_fooling = tk.StringVar(value=self.cfg.get("fooling", "auto"))
+        self.cmb_fooling = ttk.Combobox(
+            row, textvariable=self.var_fooling, values=FOOLING_MODES,
+            state="readonly", width=14,
+        )
+        self.cmb_fooling.pack(side="left", padx=6)
+        ttk.Label(row, text="(auto = md5sig на Windows)",
+                  foreground="#666").pack(side="left", padx=4)
 
         self.var_gf_tcp = tk.BooleanVar(value=self.cfg["gamefilter_tcp"])
         self.var_gf_udp = tk.BooleanVar(value=self.cfg["gamefilter_udp"])
@@ -85,7 +103,8 @@ class App:
         self.var_warp = tk.BooleanVar(value=self.cfg["warp_enabled"])
         ttk.Checkbutton(warp_frame, text="Включить WARP", variable=self.var_warp).pack(anchor="w", **pad)
 
-        row = ttk.Frame(warp_frame); row.pack(fill="x", **pad)
+        row = ttk.Frame(warp_frame)
+        row.pack(fill="x", **pad)
         ttk.Label(row, text="Режим:").pack(side="left")
         self.var_mode = tk.StringVar(value=self.cfg["warp_mode"])
         ttk.Combobox(row, textvariable=self.var_mode, values=WARP_MODES,
@@ -113,6 +132,7 @@ class App:
         c = dict(self.cfg)
         c["strategy"] = self.var_strategy.get()
         c["interface"] = self.var_iface.get()
+        c["fooling"] = self.var_fooling.get()
         c["gamefilter_tcp"] = self.var_gf_tcp.get()
         c["gamefilter_udp"] = self.var_gf_udp.get()
         c["warp_enabled"] = self.var_warp.get()
@@ -197,10 +217,12 @@ class App:
                 "    sudo python3 cli.py setup   (NOPASSWD для root-helper)")
 
     def _do_start(self, c):
+        fooling = strategy.resolve_fooling(c.get("fooling"))
         try:
-            self._log("Запуск DPI-десинка: " + c["strategy"])
+            self._log("Запуск DPI-десинка: " + c["strategy"] + " (fooling: " + fooling + ")")
             engine.start(c["strategy"], c["interface"],
-                         c["gamefilter_tcp"], c["gamefilter_udp"])
+                         c["gamefilter_tcp"], c["gamefilter_udp"],
+                         fooling=c.get("fooling"))
             self._log("DPI-десинк запущен (nfqws/winws)")
         except Exception as e:
             self._log("Ошибка десинка: " + str(e))

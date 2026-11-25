@@ -6,9 +6,14 @@
 # Вызывается из приложения:
 #   root-helper.sh start <TCP_PORTS> <UDP_PORTS> <IFACE> [nfqws args...]
 #   root-helper.sh stop
+#   root-helper.sh status
 #
 # Для работы GUI без пароля выполни один раз:
 #   sudo python3 cli.py setup      (создаёт NOPASSWD-правило в /etc/sudoers.d)
+#
+# ВАЖНО: nfqws запускается от root (ему нужны NFQUEUE и raw-сокеты) —
+# привилегии НЕ понижаются. Списки (lists/), которые он читает, должны быть
+# доступны на чтение; относительные пути в argv резолвятся от PROG_DIR.
 # =============================================================================
 set -u
 
@@ -16,8 +21,26 @@ PROG_DIR="$(cd "$(dirname "$0")" && pwd)"
 NFQWS="$PROG_DIR/bin/nfqws"
 MARK="0x40000000"
 QNUM="220"
+PIDFILE="/run/zapret-warp/nfqws.pid"
 
 action="${1:-}"
+
+valid_ports() {
+    # пусто допустимо; иначе только цифры, запятые и диапазоны через дефис
+    case "${1:-}" in
+        '') return 0 ;;
+        *[!0-9,-]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+valid_iface() {
+    case "${1:-}" in
+        '') return 0 ;;
+        *[!A-Za-z0-9_.:@-]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
 
 fw_clear() {
     nft delete table inet zapretunix 2>/dev/null || true
@@ -50,6 +73,26 @@ fw_setup() {
     fi
 }
 
+kill_own() {
+    # Останавливаем ТОЛЬКО свой nfqws: по pidfile, с мягким фолбэком на
+    # путь bin/nfqws (чтобы не убить чужой nfqws/роутерный инстанс).
+    local pid=""
+    if [ -r "$PIDFILE" ]; then
+        pid="$(cat "$PIDFILE" 2>/dev/null || true)"
+    fi
+    case "$pid" in
+        ''|*[!0-9]*) pid="" ;;
+    esac
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+        kill "$pid" 2>/dev/null || true
+        sleep 0.2
+        kill -9 "$pid" 2>/dev/null || true
+    else
+        pkill -f "$PROG_DIR/bin/nfqws" 2>/dev/null || true
+    fi
+    rm -f "$PIDFILE" 2>/dev/null || true
+}
+
 case "$action" in
     start)
         if [ "$#" -lt 4 ]; then
@@ -57,21 +100,39 @@ case "$action" in
             exit 2
         fi
         tcp_ports="$2"; udp_ports="$3"; iface="$4"
+        if ! valid_ports "$tcp_ports" || ! valid_ports "$udp_ports"; then
+            echo "root-helper: недопустимые порты (ожидаются цифры, ',' и '-')" >&2
+            exit 2
+        fi
+        if ! valid_iface "$iface"; then
+            echo "root-helper: недопустимое имя интерфейса: $iface" >&2
+            exit 2
+        fi
+        if [ ! -x "$NFQWS" ]; then
+            echo "root-helper: не найден исполняемый $NFQWS" >&2
+            exit 3
+        fi
         shift 4
-        pkill -f nfqws 2>/dev/null || true
+        kill_own
+        install -d -m 0755 /run/zapret-warp 2>/dev/null || true
         fw_setup "$tcp_ports" "$udp_ports" "$iface"
-        cd "$PROG_DIR"
+        cd "$PROG_DIR" || exit 3
         echo "[root-helper] uid=$(id -u) user=$(id -un) nfqws=$NFQWS" >&2
-        # пути списков теперь относительные (bin/, lists/) — nfqws читает их из
-        # своего cwd даже после понижения привилегий до nobody (домашний каталог 700)
-        exec "$NFQWS" --daemon --dpi-desync-fwmark="$MARK" --qnum="$QNUM" "$@"
+        exec "$NFQWS" --daemon --pidfile="$PIDFILE" \
+            --dpi-desync-fwmark="$MARK" --qnum="$QNUM" "$@"
         ;;
     stop)
-        pkill -f nfqws 2>/dev/null || true
+        kill_own
         fw_clear
         ;;
     status)
-        if pgrep -f nfqws >/dev/null 2>&1; then echo "running"; else echo "stopped"; fi
+        pid=""
+        if [ -r "$PIDFILE" ]; then pid="$(cat "$PIDFILE" 2>/dev/null || true)"; fi
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "running"
+        else
+            echo "stopped"
+        fi
         ;;
     *)
         echo "неизвестное действие: $action" >&2
