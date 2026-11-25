@@ -1,10 +1,12 @@
 """Запуск DPI-десинка: nfqws (Linux, через root-helper) / winws.exe (Windows)."""
+import csv
 import os
 import subprocess
 import tempfile
 import time
 
-from . import paths, strategy
+from . import paths, strategy, winjob
+from .logs import get as _log_get
 
 HELPER = os.path.join(paths.APP_DIR, "root-helper.sh")
 
@@ -115,13 +117,30 @@ def _pid_alive(pid):
     return True
 
 
-def is_running():
+def desync_pid():
+    """PID процесса десинка (None, если не запущен).
+
+    Нужен состоянию приложения и диагностике: «процесс жив» без PID —
+    бесполезное утверждение, если в системе два winws.
+    """
     if os.name == "nt":
         r = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq winws.exe"],
+            ["tasklist", "/FI", "IMAGENAME eq winws.exe", "/FO", "CSV", "/NH"],
             capture_output=True, text=True, **_nowin(),
         )
-        return "winws.exe" in r.stdout
+        for row in csv.reader((r.stdout or "").splitlines()):
+            if row and row[0].lower().endswith("winws.exe"):
+                try:
+                    return int(row[1])
+                except (IndexError, ValueError):
+                    return None
+        return None
+    return nfqws_pid()
+
+
+def is_running():
+    if os.name == "nt":
+        return desync_pid() is not None
 
     pid = nfqws_pid()
     if pid:
@@ -133,13 +152,22 @@ def is_running():
     return r.returncode == 0
 
 
-def start(name, interface, gamefilter_tcp, gamefilter_udp, fooling=None):
-    """Поднять десинк. Возвращает разобранную стратегию (для лога/диагностики)."""
+def start(name, interface, gamefilter_tcp, gamefilter_udp, fooling=None,
+          kill_with_parent=False):
+    """Поднять десинк. Возвращает разобранную стратегию (для лога/диагностики).
+
+    kill_with_parent — только для GUI: привязать winws к Job Object, чтобы он
+    гарантированно умирал вместе с приложением. CLI этого делать не должен:
+    он завершается сразу после запуска, и туннель умер бы вместе с ним.
+    """
+    log = _log_get("engine")
     p = strategy.parse(name, gamefilter_tcp, gamefilter_udp, fooling=fooling)
+    log.info("старт: стратегия=%s fooling=%s argv=%s",
+             name, p["fooling"], " ".join(p["all_args"]))
     if os.name == "nt":
-        if "ts" in p["fooling"]:
-            ensure_tcp_timestamps()
-        _start_winws(p["all_args"])
+        if "ts" in p["fooling"] and not ensure_tcp_timestamps():
+            log.warning("не удалось включить TCP timestamps: fooling=ts может не работать")
+        _start_winws(p["all_args"], kill_with_parent=kill_with_parent)
     else:
         _run_root(
             "start",
@@ -148,10 +176,11 @@ def start(name, interface, gamefilter_tcp, gamefilter_udp, fooling=None):
             interface or "any",
             *p["filter_args"],
         )
+    log.info("десинк запущен (pid %s)", desync_pid())
     return p
 
 
-def _start_winws(all_args):
+def _start_winws(all_args, kill_with_parent=False):
     """Запустить winws.exe и убедиться, что он реально поднялся.
 
     Раньше мы стартовали процесс «вслепую» — если winws сразу падал
@@ -184,15 +213,21 @@ def _start_winws(all_args):
                 "Подсказка: запустите приложение от имени администратора "
                 "(нужен драйвер WinDivert).".format(
                     proc.returncode, tail or "лог пуст — вероятно, не хватает прав."))
+        if kill_with_parent and not winjob.attach(proc.pid):
+            _log_get("engine").warning(
+                "не удалось привязать winws к Job Object — процесс может остаться "
+                "после закрытия приложения")
     finally:
         logf.close()
 
 
 def stop():
+    log = _log_get("engine")
     if os.name == "nt":
         subprocess.run(["taskkill", "/IM", "winws.exe", "/F"], capture_output=True, **_nowin())
     else:
         _run_root("stop")
+    log.info("десинк остановлен")
 
 
 def list_interfaces():

@@ -6,7 +6,7 @@ The desync makes the WARP handshake survive networks that block or throttle
 
 > Russian version: [README.ru.md](README.ru.md)
 
-**Current version: 1.1.0** — see [CHANGELOG.md](CHANGELOG.md).
+**Current version: 1.2.0** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Why the order matters
 
@@ -59,7 +59,8 @@ sudo apt install python3-tk nftables  # Debian/Ubuntu
 | Command | What it does |
 |---|---|
 | `doctor` | env check (binaries, lists, privileges, `warp-cli`, fooling) + fixes |
-| `status` | desync state, active strategy + fooling, WARP status |
+| `status` | desync state with PID, active strategy + fooling, WARP state |
+| `check` | full snapshot: desync, tunnel, reachability of 6 targets, exit IP; exit code 0/1 |
 | `start` | desync → WARP; prints the effective `argv` |
 | `stop` | stop WARP, stop desync, clear firewall table |
 | `strategies` | list available `.bat` strategies |
@@ -67,6 +68,34 @@ sudo apt install python3-tk nftables  # Debian/Ubuntu
 | `key` | register a WARP account via `wgcf` (needs desync running) |
 | `--version` | print the version |
 | `--fooling <v>` | override `config.json → fooling` for this run |
+| `--timeout <s>` | per-probe timeout for `check` (default 5) |
+| `--no-probe` | `check` without network probes |
+| `-v` | duplicate the log to stderr |
+
+`check` is the honest answer to “does it work?”:
+
+```text
+DPI-десинк: остановлен
+Стратегия:  warp_simple_fake.bat | fooling: md5sig
+WARP:       Disconnected (Disconnected)
+Выходной IP: 203.0.113.10  (colo FRA | warp=off)
+Доступность:
+  Cloudflare WARP: [OK] ok 214 мс
+  YouTube: [OK] ok 209 мс
+  Telegram: [OK] ok 321 мс
+  Discord: [OK] ok 1175 мс
+  Google 204: [OK] ok 624 мс
+  DNS: [OK] ok 2 мс
+
+Итог: есть проблемы
+```
+
+Each probe returns an error **class**, not just pass/fail: `timeout` (blocked),
+`reset`/`tls_*` (the fake reached the server — wrong `fooling`), `refused`, `dns`.
+`reset`/`tls_*` on the WARP endpoint is the signature of the bug fixed in 1.1.
+
+Logs are written to `%LOCALAPPDATA%\zapret-warp\zapret-warp.log` (Linux:
+`~/.local/state/zapret-warp/`), rotated at 1 MB × 3.
 
 ## Configuration (`config.json`, created on first run)
 
@@ -76,6 +105,7 @@ sudo apt install python3-tk nftables  # Debian/Ubuntu
 | `interface` | `any` | outbound interface (Linux; `any` = all) |
 | `fooling` | `auto` | value of `%Fooling%`: `auto` = `md5sig` on Windows, `ts,md5sig` on Linux. Any zapret fooling list works (`md5sig`, `badseq`, `md5sig,badseq`, `ts`, …) |
 | `gamefilter_tcp` / `gamefilter_udp` | `false` | substitute `%GameFilterTCP%`/`%GameFilterUDP%` with game port ranges |
+| `kill_engine_on_exit` | `true` | GUI binds `winws.exe` to a Job Object so it dies with the app |
 | `warp_enabled` | `true` | connect WARP after desync |
 | `warp_mode` | `warp` | `warp`, `warp+doh`, `doh`, `dot`, `warp+dot`, `proxy`, `tunnel_only` |
 | `warp_protocol` | `MASQUE` | `MASQUE` or `WireGuard` |
@@ -117,7 +147,11 @@ main.py / cli.py          GUI (tkinter) and CLI
 core/config.py            config.json
 core/strategy.py          .bat → argv (quotes, %BIN%, %LISTS%, %Fooling%, GameFilter, dead ipset)
 core/engine.py            winws.exe (Windows) / nfqws via root-helper.sh + nft (Linux)
-core/warp.py              warp-cli: status/mode/protocol/connect with real error messages
+core/probe.py             TLS/HTTP/DNS probes with error classification
+core/state.py             AppState + Monitor: single source of truth
+core/warp.py              warp-cli: state enum, settings, connect with real errors
+core/winjob.py            Job Object: winws dies with the GUI
+core/logs.py              file logging with rotation
 core/wgcf.py              WARP account registration (optional, `cli.py key`)
 core/doctor.py            readiness report (ASCII icons on narrow consoles)
 core/paths.py             portable layout: next to the .exe → _MEIPASS

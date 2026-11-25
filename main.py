@@ -6,7 +6,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
-from core import config, doctor, engine, strategy, warp
+from core import config, doctor, engine, logs, state, strategy, warp
 from core.version import __version__
 
 WARP_MODES = ["warp+doh", "warp", "doh", "dot", "warp+dot", "proxy", "tunnel_only"]
@@ -150,23 +150,31 @@ class App:
         self.txt.see("end")
         self.txt.configure(state="disabled")
 
-    def _apply_status(self, d):
-        eng = d.get("engine")
+    def _apply_status(self, snapshot):
+        running = snapshot.engine_running
         self.lbl_engine.config(
-            text="DPI-десинк: " + ("● запущен" if eng else "○ остановлен"),
-            foreground="#1a7f1a" if eng else "#a33",
+            text="DPI-десинк: " + ("● запущен" if running else "○ остановлен")
+            + (f" (pid {snapshot.engine_pid})" if snapshot.engine_pid else ""),
+            foreground="#1a7f1a" if running else "#a33",
         )
-        st = d.get("warp") or ""
-        conn = "Connected" in st
+        labels = {
+            "Connected": "● подключен",
+            "Connecting": "○ подключение…",
+            "Disconnecting": "○ отключение…",
+            "Disconnected": "○ отключен",
+            "NoRegistration": "○ не зарегистрирован",
+            "Unknown": "○ состояние неизвестно",
+        }
+        state_value = snapshot.warp_state.value
         self.lbl_warp.config(
-            text="Cloudflare WARP: " + ("● подключен" if conn else "○ отключен"),
-            foreground="#1a7f1a" if conn else "#a33",
+            text="Cloudflare WARP: " + labels.get(state_value, "○ " + state_value),
+            foreground="#1a7f1a" if snapshot.warp_connected else "#a33",
         )
 
     def _worker_status(self):
-        d = {"engine": engine.is_running()}
-        d["warp"] = warp.status(self.cfg) if warp.installed() else "не установлен"
-        self.q.put(("status", d))
+        # Единый источник состояния: не дёргаем tasklist/warp-cli каждые 3 с в
+        # нескольких местах и не сравниваем подстроки вручную.
+        self.q.put(("status", state.collect(self.cfg, do_probe=False)))
 
     def _drain(self):
         try:
@@ -222,7 +230,8 @@ class App:
             self._log("Запуск DPI-десинка: " + c["strategy"] + " (fooling: " + fooling + ")")
             engine.start(c["strategy"], c["interface"],
                          c["gamefilter_tcp"], c["gamefilter_udp"],
-                         fooling=c.get("fooling"))
+                         fooling=c.get("fooling"),
+                         kill_with_parent=bool(c.get("kill_engine_on_exit", True)))
             self._log("DPI-десинк запущен (nfqws/winws)")
         except Exception as e:
             self._log("Ошибка десинка: " + str(e))
@@ -281,6 +290,8 @@ class App:
 
 
 def main():
+    # В windowed-сборке stdout нет: единственный сток для диагностики — файл.
+    logs.setup(console=False).info("GUI старт, версия %s", __version__)
     root = tk.Tk()
     App(root)
     root.mainloop()

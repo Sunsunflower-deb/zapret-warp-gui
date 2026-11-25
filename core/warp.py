@@ -1,12 +1,15 @@
 """Управление Cloudflare WARP (warp-cli)."""
+import enum
 import getpass
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 
 from . import paths
+from .logs import get as _log_get
 
 
 # --- обнаружение warp-cli -----------------------------------------------
@@ -157,49 +160,122 @@ def _err(r, what):
     return "{}: код возврата {}".format(what, r.returncode)
 
 
+class WarpState(str, enum.Enum):
+    """Состояние туннеля. Строковые значения — как их печатает warp-cli."""
+
+    CONNECTED = "Connected"
+    CONNECTING = "Connecting"
+    DISCONNECTED = "Disconnected"
+    DISCONNECTING = "Disconnecting"
+    NO_REGISTRATION = "NoRegistration"
+    UNKNOWN = "Unknown"
+
+
+# Порядок важен: "disconnected" содержит "connected", а "disconnecting" —
+# "connecting". Поэтому сначала отрицательные формы.
+_WORDS = (
+    ("disconnected", WarpState.DISCONNECTED),
+    ("disconnecting", WarpState.DISCONNECTING),
+    ("connecting", WarpState.CONNECTING),
+    ("connected", WarpState.CONNECTED),
+    ("registration missing", WarpState.NO_REGISTRATION),
+    ("registration", WarpState.NO_REGISTRATION),
+)
+
+_STATE_RE = re.compile(r"^\s*Status update:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def parse_status(raw):
+    """Сырой вывод `warp-cli status` → (WarpState, строка статуса).
+
+    Чистая функция без побочных эффектов — её легко тестировать и
+    использовать в GUI/watchdog без запуска процессов.
+    """
+    if not raw:
+        return WarpState.UNKNOWN, ""
+    text = str(raw).strip()
+    match = _STATE_RE.search(text)
+    line = (match.group(1) if match else text.splitlines()[0]).strip()
+    low = line.lower()
+    for word, state in _WORDS:
+        if word in low:
+            return state, line
+    return WarpState.UNKNOWN, line
+
+
+def state(cfg):
+    """Текущее состояние WARP: (WarpState, строка)."""
+    return parse_status(status(cfg))
+
+
 def apply_settings(cfg):
-    run(cfg, "mode", cfg.get("warp_mode", "warp+doh"))
-    run(cfg, "tunnel", "protocol", "set", cfg.get("warp_protocol", "MASQUE"))
-    run(cfg, "tunnel", "masque-options", "set",
-        cfg.get("warp_masque", "h3-with-h2-fallback"))
+    """Применить режим/протокол/endpoint.
+
+    Возвращает список (что, текст ошибки). Раньше коды возврата молча
+    игнорировались, и «не подключается» оставалось без причины: например,
+    старый warp-cli не знает `tunnel masque-options`.
+    """
+    errors = []
+    steps = [
+        ("mode", ("mode", cfg.get("warp_mode", "warp+doh"))),
+        ("protocol", ("tunnel", "protocol", "set", cfg.get("warp_protocol", "MASQUE"))),
+        ("masque", ("tunnel", "masque-options", "set",
+                    cfg.get("warp_masque", "h3-with-h2-fallback"))),
+    ]
+    for label, args in steps:
+        r = run(cfg, *args)
+        if r.returncode != 0:
+            errors.append((label, _err(r, "warp-cli " + " ".join(map(str, args)))))
     ep = (cfg.get("warp_endpoint") or "").strip()
     if ep:
-        run(cfg, "tunnel", "endpoint", "set", ep)
+        r = run(cfg, "tunnel", "endpoint", "set", ep)
+        if r.returncode != 0:
+            errors.append(("endpoint", _err(r, "warp-cli tunnel endpoint set " + ep)))
     else:
+        # сброс endpoint поддерживается не всеми версиями — не считаем ошибкой
         run(cfg, "tunnel", "endpoint", "reset")
+    return errors
 
 
 def connect(cfg, timeout=45):
-    """Подключить WARP и дождаться статуса Connected.
+    """Подключить WARP и дождаться состояния Connected.
 
-    Возвращает итоговый статус. Бросает RuntimeError с реальной причиной,
-    если warp-cli упал или туннель не поднялся за timeout секунд
-    (Cloudflare One часто «застревает» на Connecting — см. hints).
+    Возвращает строку статуса. Бросает RuntimeError с реальной причиной:
+    вывод warp-cli, ошибки применения настроек и последнее состояние.
     """
+    log = _log_get("warp")
     # сбрасываем зависшее состояние (51% / Connecting)
     run(cfg, "disconnect")
     time.sleep(1)
 
-    apply_settings(cfg)
+    for what, err in apply_settings(cfg):
+        log.warning("настройка не применилась (%s): %s", what, err)
 
     r = run(cfg, "--accept-tos", "connect")
     if r.returncode != 0:
         raise RuntimeError(_err(r, "warp-cli connect"))
 
-    last = ""
+    last_state, last_line = WarpState.UNKNOWN, ""
     deadline = time.time() + timeout
     while time.time() < deadline:
         time.sleep(2)
-        st = status(cfg)
-        last = st
-        if "Connected" in st:
-            return st.strip()
+        last_state, last_line = state(cfg)
+        if last_state is WarpState.CONNECTED:
+            log.info("WARP подключён: %s", last_line)
+            return last_line
+        if last_state is WarpState.NO_REGISTRATION:
+            raise RuntimeError(
+                "WARP не зарегистрирован ({!r}).\n"
+                "Запустите `python cli.py key` или войдите в приложение "
+                "Cloudflare WARP.".format(last_line)
+            )
     raise RuntimeError(
-        "WARP не вышел в Connected за {} с. Последний статус: {!r}.\n"
+        "WARP не вышел в Connected за {} с. Последнее состояние: {} ({!r}).\n"
         "Проверьте: 1) приложение запущено от администратора (WinDivert); "
         "2) DPI-десинк реально работает (статус зелёный); "
         "3) warp-cli registration show — аккаунт зарегистрирован; "
-        "4) на сети не режется UDP 443/MASQUE.".format(timeout, last)
+        "4) на сети не режется UDP 443/MASQUE.".format(
+            timeout, last_state.value, last_line)
     )
 
 

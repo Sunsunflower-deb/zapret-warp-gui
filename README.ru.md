@@ -7,7 +7,7 @@
 
 > English version: [README.md](README.md)
 
-**Текущая версия: 1.1.0** — см. [CHANGELOG.md](CHANGELOG.md).
+**Текущая версия: 1.2.0** — см. [CHANGELOG.md](CHANGELOG.md).
 
 ## Почему порядок важен
 
@@ -60,7 +60,8 @@ sudo apt install python3-tk nftables  # Debian/Ubuntu
 | Команда | Что делает |
 |---|---|
 | `doctor` | проверка окружения (бинари, списки, права, `warp-cli`, fooling) + как исправить |
-| `status` | состояние десинка, активная стратегия и fooling, статус WARP |
+| `status` | состояние десинка (с PID), активная стратегия и fooling, состояние WARP |
+| `check` | снимок целиком: десинк, туннель, доступность 6 целей, выходной IP; код возврата 0/1 |
 | `start` | десинк → WARP; печатает фактический `argv` |
 | `stop` | отключить WARP, остановить десинк, убрать таблицу nft |
 | `strategies` | список доступных `.bat`-стратегий |
@@ -68,6 +69,34 @@ sudo apt install python3-tk nftables  # Debian/Ubuntu
 | `key` | регистрация WARP-аккаунта через `wgcf` (нужен работающий десинк) |
 | `--version` | печать версии |
 | `--fooling <v>` | переопределить `config.json → fooling` на один запуск |
+| `--timeout <с>` | таймаут одной пробы для `check` (по умолчанию 5) |
+| `--no-probe` | `check` без сетевых проб |
+| `-v` | дублировать лог в stderr |
+
+`check` — честный ответ на вопрос «оно работает?»:
+
+```text
+DPI-десинк: запущен (pid 8124)
+Стратегия:  warp_simple_fake.bat | fooling: md5sig
+WARP:       Connected (Connected)
+Выходной IP: 104.28.1.2  (colo FRA | warp=on)
+Доступность:
+  Cloudflare WARP: [OK] ok 214 мс
+  YouTube: [OK] ok 209 мс
+  Telegram: [OK] ok 321 мс
+  Discord: [OK] ok 1175 мс
+  Google 204: [OK] ok 624 мс
+  DNS: [OK] ok 2 мс
+
+Итог: работает
+```
+
+Проба возвращает **класс ошибки**, а не «да/нет»: `timeout` (блокировка),
+`reset`/`tls_*` (**фейк дошёл до сервера** — не тот `fooling`), `refused`, `dns`.
+Именно `reset`/`tls_*` на endpoint'е WARP — подпись бага, исправленного в 1.1.
+
+Логи пишутся в `%LOCALAPPDATA%\zapret-warp\zapret-warp.log` (Linux:
+`~/.local/state/zapret-warp/`), ротация 1 МБ × 3.
 
 ## Конфигурация (`config.json`, создаётся при первом запуске)
 
@@ -77,6 +106,7 @@ sudo apt install python3-tk nftables  # Debian/Ubuntu
 | `interface` | `any` | исходящий интерфейс (Linux; `any` — все) |
 | `fooling` | `auto` | значение `%Fooling%`: `auto` = `md5sig` на Windows, `ts,md5sig` на Linux. Можно любой список fooling из zapret (`md5sig`, `badseq`, `md5sig,badseq`, `ts`, …) |
 | `gamefilter_tcp` / `gamefilter_udp` | `false` | подставить `%GameFilterTCP%`/`%GameFilterUDP%` игровыми диапазонами портов |
+| `kill_engine_on_exit` | `true` | GUI привязывает `winws.exe` к Job Object — процесс умирает вместе с приложением |
 | `warp_enabled` | `true` | подключать WARP после десинка |
 | `warp_mode` | `warp` | `warp`, `warp+doh`, `doh`, `dot`, `warp+dot`, `proxy`, `tunnel_only` |
 | `warp_protocol` | `MASQUE` | `MASQUE` или `WireGuard` |
@@ -119,7 +149,11 @@ main.py / cli.py          GUI (tkinter) и CLI
 core/config.py            config.json
 core/strategy.py          .bat → argv (кавычки, %BIN%, %LISTS%, %Fooling%, GameFilter, мёртвый ipset)
 core/engine.py            winws.exe (Windows) / nfqws через root-helper.sh + nft (Linux)
-core/warp.py              warp-cli: статус/режим/протокол/connect с реальными ошибками
+core/probe.py             TLS/HTTP/DNS-пробы с классификацией ошибок
+core/state.py             AppState + Monitor: единый источник состояния
+core/warp.py              warp-cli: enum состояния, настройки, connect с реальными ошибками
+core/winjob.py            Job Object: winws умирает вместе с GUI
+core/logs.py              логи в файл с ротацией
 core/wgcf.py              регистрация WARP-аккаунта (опционально, `cli.py key`)
 core/doctor.py            отчёт о готовности (ASCII-иконки на узких консолях)
 core/paths.py             портативно: рядом с .exe → _MEIPASS

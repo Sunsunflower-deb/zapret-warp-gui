@@ -20,6 +20,9 @@ DEFAULTS = {
     # Явное значение ("ts", "md5sig", "badseq", "md5sig,badseq") — способ
     # откатиться, если на конкретной сети работает только старый вариант.
     "fooling": "auto",
+    # GUI: привязать winws.exe к Job Object, чтобы он умирал вместе с
+    # приложением (иначе остаётся осиротевший процесс с WinDivert).
+    "kill_engine_on_exit": True,
     "warp_enabled": True,
     "warp_mode": "warp",
     "warp_protocol": "MASQUE",

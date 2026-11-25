@@ -3,7 +3,7 @@ import os
 import shutil
 import sys
 
-from . import config, engine, paths, strategy, warp
+from . import config, engine, logs, paths, strategy, warp
 
 OK = "\u2705"
 BAD = "\u274c"
@@ -115,6 +115,11 @@ def run():
         add("ipset-all.txt", True,
             "пуст — правила с --ipset= отключены (нормально для WARP-only; "
             "см. lists/README.md)")
+    try:
+        add("логи", True, logs.log_path())
+    except OSError as exc:
+        add("логи", False, "каталог недоступен: " + str(exc),
+            "проверьте права на каталог состояния приложения")
 
     # --- WARP ---
     cli = warp.find_cli()
