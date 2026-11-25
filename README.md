@@ -101,7 +101,7 @@ Logs are written to `%LOCALAPPDATA%\zapret-warp\zapret-warp.log` (Linux:
 ### Autotuning
 
 The repo ships 24 `.bat` strategies and no way to know which one works on your
-network. `tune` tries them systematically:
+network. `tune` tries them systematically (20 candidates):
 
 ```bash
 python cli.py tune --dry-run    # list candidates (16), no side effects

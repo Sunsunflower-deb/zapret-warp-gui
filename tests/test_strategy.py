@@ -173,6 +173,20 @@ def test_warp_strategy_masking_params():
     assert "--hostlist=lists/list-warp.txt" in args
 
 
+def test_warp_strategy_splits_early():
+    """Разрез в 1-м байте — измеренный рабочий вариант (docs/measurements.md).
+
+    На сети с SNI-блокировкой, которая не собирает поток:
+      разрез 1-3 байта -> 8/8, без разреза -> 0/8, разрез >=10 -> 0/8.
+    Поэтому первый сегмент не должен быть распознаваем как TLS.
+    """
+    p = strategy.parse("warp_simple_fake.bat", fooling="md5sig")
+    args = p["all_args"]
+    assert "--dpi-desync-split-pos=1" in args
+    modes = [a for a in args if a.startswith("--dpi-desync=")]
+    assert any("multisplit" in m for m in modes), modes
+
+
 def test_warp_strategy_scoped_to_tunnel_hosts():
     """В WARP-стратегии все hostlist ссылаются только на list-warp."""
     p = strategy.parse("warp_simple_fake.bat", fooling="md5sig")

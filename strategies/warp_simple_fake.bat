@@ -17,6 +17,11 @@
 ::    DPI, но не дошёл до сервера. Не зависит от TCP timestamps, которые
 ::    в Windows выключены по умолчанию (из-за этого старый fooling=ts на
 ::    Windows не работал, и фейки уходили в реальный Cloudflare).
+::  * --dpi-desync=fake,multisplit + --dpi-desync-split-pos=1 -- первый
+::    сегмент не распознаётся как TLS, поэтому SNI не виден. Замерено на
+::    сети с SNI-блокировкой: разрез в 1-3 байте 8/8, без разреза и разрез
+::    >=10 байт 0/8 (docs/measurements.md). Фейк остаётся как страховка
+::    для DPI, который всё-таки собирает поток.
 ::  * --dpi-desync-cutoff=n4 -- дурение только первых пакетов соединения.
 ::  * %Fooling% -- подставляется движком (config.json -> "fooling"):
 ::    "auto" = md5sig на Windows, "ts,md5sig" на Linux.
@@ -33,5 +38,5 @@ if not defined Fooling set "Fooling=md5sig"
 cd /d "%BIN%"
 
 start "zapret-warp" /min "%BIN%winws.exe" --wf-tcp=443,2053,2083,2087,2096,8443 --wf-udp=443 ^
---filter-tcp=443,2053,2083,2087,2096,8443 --hostlist="%LISTS%list-warp.txt" --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-fooling=%Fooling% --dpi-desync-autottl --dpi-desync-cutoff=n4 --dpi-desync-fake-tls="%BIN%tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls-mod=rnd,dupsid --new ^
+--filter-tcp=443,2053,2083,2087,2096,8443 --hostlist="%LISTS%list-warp.txt" --dpi-desync=fake,multisplit --dpi-desync-split-pos=1 --dpi-desync-repeats=2 --dpi-desync-fooling=%Fooling% --dpi-desync-autottl --dpi-desync-cutoff=n4 --dpi-desync-fake-tls="%BIN%tls_clienthello_www_google_com.bin" --dpi-desync-fake-tls-mod=rnd,dupsid --new ^
 --filter-udp=443 --hostlist="%LISTS%list-warp.txt" --dpi-desync=fake --dpi-desync-repeats=2 --dpi-desync-fake-quic="%BIN%quic_initial_www_google_com.bin" --dpi-desync-any-protocol=1

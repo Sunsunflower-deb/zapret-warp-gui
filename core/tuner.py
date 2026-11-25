@@ -88,6 +88,23 @@ TECHNIQUES = (
         "--dpi-desync-fake-tls-mod=rnd,dupsid",
     ),
     Technique(
+        "split1",
+        "multisplit с разрезом в 1-м байте (первый сегмент не похож на TLS)",
+        "--dpi-desync=multisplit --dpi-desync-split-pos=1 "
+        "--dpi-desync-cutoff=n4",
+        uses_fooling=False,
+        uses_fakes=False,
+    ),
+    Technique(
+        "fake-split1",
+        "fake + multisplit с разрезом в 1-м байте",
+        '--dpi-desync=fake,multisplit --dpi-desync-split-pos=1 '
+        '--dpi-desync-repeats=2 --dpi-desync-fooling=%Fooling% '
+        '--dpi-desync-autottl --dpi-desync-cutoff=n4 '
+        '--dpi-desync-fake-tls="%BIN%tls_clienthello_www_google_com.bin" '
+        "--dpi-desync-fake-tls-mod=rnd,dupsid",
+    ),
+    Technique(
         "hostfakesplit",
         "hostfakesplit altorder=1 (подмена SNI при сборке на DPI)",
         "--dpi-desync=hostfakesplit --dpi-desync-hostfakesplit-mod=altorder=1 "
