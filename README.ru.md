@@ -7,7 +7,7 @@
 
 > English version: [README.md](README.md)
 
-**Текущая версия: 1.2.0** — см. [CHANGELOG.md](CHANGELOG.md).
+**Текущая версия: 1.3.0** — см. [CHANGELOG.md](CHANGELOG.md).
 
 ## Почему порядок важен
 
@@ -62,6 +62,7 @@ sudo apt install python3-tk nftables  # Debian/Ubuntu
 | `doctor` | проверка окружения (бинари, списки, права, `warp-cli`, fooling) + как исправить |
 | `status` | состояние десинка (с PID), активная стратегия и fooling, состояние WARP |
 | `check` | снимок целиком: десинк, туннель, доступность 6 целей, выходной IP; код возврата 0/1 |
+| `tune` | перебрать ~16 кандидатов и выбрать работающего на этой сети |
 | `start` | десинк → WARP; печатает фактический `argv` |
 | `stop` | отключить WARP, остановить десинк, убрать таблицу nft |
 | `strategies` | список доступных `.bat`-стратегий |
@@ -97,6 +98,23 @@ WARP:       Connected (Connected)
 
 Логи пишутся в `%LOCALAPPDATA%\zapret-warp\zapret-warp.log` (Linux:
 `~/.local/state/zapret-warp/`), ротация 1 МБ × 3.
+
+### Автоподбор стратегии
+
+В репозитории 24 `.bat`-стратегии, и узнать, какая работает именно на вашей сети,
+было нечем. `tune` перебирает их сам:
+
+```bash
+python cli.py tune --dry-run    # показать кандидатов (16), ничего не запускать
+python cli.py tune              # прогон; нужны права администратора/root
+python cli.py tune --apply      # сохранить победителя как strategies/tuned.bat
+```
+
+Кандидаты оцениваются по доле успеха, медиане RTT и **утечкам**: ответ `reset`/`tls_*`
+означает, что фейк дошёл до сервера, поэтому «текущий» кандидат ставится ниже
+чистого, даже если он быстрее. Бюджет по умолчанию — 180 с (`--budget`), попыток на
+цель — 2 (`--attempts`). Техники: `fake`, `fake+multisplit`, `hostfakesplit`,
+`multidisorder`, `fakedsplit` × `md5sig`/`md5sig,badseq`/`badseq`.
 
 ## Конфигурация (`config.json`, создаётся при первом запуске)
 

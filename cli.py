@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """CLI-режим zapret-warp (без GUI)."""
 import argparse
+import os
 import sys
 import time
 
-from core import config, doctor, engine, logs, state, strategy, warp, wgcf
+from core import config, doctor, engine, logs, state, strategy, tuner, warp, wgcf
 from core.version import __version__
 
-COMMANDS = ["start", "stop", "status", "check", "strategies", "setup", "doctor", "key"]
+COMMANDS = ["start", "stop", "status", "check", "tune", "strategies", "setup",
+            "doctor", "key"]
 
 
 def _prepare_console():
@@ -55,6 +57,15 @@ def build_parser():
                     help="для 'check': только процессы и статус, без сети")
     ap.add_argument("-v", "--verbose", action="store_true",
                     help="дублировать лог в stderr")
+    tune = ap.add_argument_group("tune")
+    tune.add_argument("--dry-run", action="store_true",
+                      help="для 'tune': только показать кандидатов, ничего не запускать")
+    tune.add_argument("--attempts", type=int, default=tuner.DEFAULT_ATTEMPTS,
+                      help="для 'tune': сколько раз пробовать каждую цель")
+    tune.add_argument("--budget", type=float, default=tuner.DEFAULT_BUDGET,
+                      help="для 'tune': лимит времени на весь подбор, с")
+    tune.add_argument("--apply", action="store_true",
+                      help="для 'tune': сохранить победителя в strategies/tuned.bat")
     return ap
 
 
@@ -81,6 +92,8 @@ def main(argv=None):
         print()
         print("Итог:", "работает" if snapshot.healthy else "есть проблемы")
         return 0 if snapshot.healthy else 1
+    elif args.command == "tune":
+        return _cmd_tune(args, cfg)
     elif args.command == "doctor":
         print(doctor.format_report(doctor.run()))
     elif args.command == "start":
@@ -101,6 +114,64 @@ def main(argv=None):
         engine.setup_root()
     elif args.command == "key":
         wgcf.run_key(args.license_key, args.force)
+    return 0
+
+
+def _cmd_tune(args, cfg):
+    """Автоподбор стратегии (этап 6 плана)."""
+    candidates = tuner.build_candidates()
+    if args.dry_run:
+        for candidate in candidates:
+            print(candidate.id)
+            print("    " + candidate.label)
+        print()
+        print(f"всего кандидатов: {len(candidates)}")
+        return 0
+
+    if os.name == "nt" and not engine.is_admin():
+        print("Нужны права администратора: подбор перезапускает winws.exe.")
+        print("Откройте терминал от имени администратора и повторите.")
+        return 2
+
+    was_running = engine.is_running()
+    print(f"Подбор: {len(candidates)} кандидатов, {args.attempts} попыток на цель, "
+          f"бюджет {args.budget:.0f} с")
+    print("Цели: " + ", ".join(f"{t.name} ({t.target})" for t in tuner.TUNE_TARGETS))
+    print()
+    try:
+        result = tuner.tune(attempts=args.attempts, timeout=args.timeout,
+                            budget=args.budget,
+                            progress=lambda r: print("  " + r.line(), flush=True))
+    except KeyboardInterrupt:
+        print()
+        print("Прервано пользователем.")
+        return 130
+    finally:
+        if not was_running:
+            try:
+                engine.stop()
+            except Exception as exc:  # noqa: BLE001
+                logs.get("cli").warning("не удалось остановить десинк: %s", exc)
+
+    print()
+    if result.best is None or not result.best.ok:
+        print("Ни один кандидат не заработал — конфиг не изменён.")
+        print("Проверьте: права администратора, список list-warp.txt и доступность "
+              "endpoint'а WARP (`python cli.py check`).")
+        return 1
+
+    best = result.best
+    print("Лучший:", best.candidate.label)
+    print(f"  score {best.score:.1f} · успех {best.ok_rate * 100:.0f}% · "
+          f"медиана {best.median_rtt:.0f} мс")
+    if result.stopped_by_budget:
+        print("  (бюджет времени исчерпан: проверены не все кандидаты)")
+    if args.apply:
+        path = tuner.apply(best.candidate, cfg)
+        print("Сохранено:", path)
+        print("config.json: strategy=tuned.bat, fooling=" + best.candidate.fooling)
+    else:
+        print("Чтобы сохранить результат, повторите с --apply.")
     return 0
 
 

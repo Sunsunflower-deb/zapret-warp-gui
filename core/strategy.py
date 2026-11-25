@@ -24,10 +24,16 @@ _GAMEFILTER_ONLY_RE = re.compile(
 
 
 def list_strategies():
+    """Стратегии в strategies/.
+
+    Скрытые файлы (`.tune-*.bat`) — временные файлы автоподбора, в списке
+    для пользователя им делать нечего.
+    """
     if not os.path.isdir(paths.STRATEGIES_DIR):
         return []
     return sorted(
-        f for f in os.listdir(paths.STRATEGIES_DIR) if f.lower().endswith(".bat")
+        f for f in os.listdir(paths.STRATEGIES_DIR)
+        if f.lower().endswith(".bat") and not f.startswith(".")
     )
 
 

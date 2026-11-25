@@ -213,3 +213,12 @@ def test_parse_file_quotes_are_stripped(tmp_path):
     p = strategy.parse_file(str(bat), fooling="md5sig")
     assert "--hostlist=lists/list-warp.txt" in p["all_args"]
     assert p["wf_tcp"] == "443"
+
+def test_list_strategies_hides_tuner_temp_files(tmp_path, monkeypatch):
+    """Временные файлы автоподбора не должны попадать в список стратегий."""
+    (tmp_path / "visible.bat").write_text("@echo off\n", encoding="utf-8")
+    (tmp_path / ".tune-hidden__md5sig.bat").write_text("@echo off\n", encoding="utf-8")
+    monkeypatch.setattr(paths, "STRATEGIES_DIR", str(tmp_path))
+    names = strategy.list_strategies()
+    assert "visible.bat" in names
+    assert all(not n.startswith(".") for n in names)

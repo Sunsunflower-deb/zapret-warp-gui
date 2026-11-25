@@ -6,7 +6,7 @@ The desync makes the WARP handshake survive networks that block or throttle
 
 > Russian version: [README.ru.md](README.ru.md)
 
-**Current version: 1.2.0** — see [CHANGELOG.md](CHANGELOG.md).
+**Current version: 1.3.0** — see [CHANGELOG.md](CHANGELOG.md).
 
 ## Why the order matters
 
@@ -61,6 +61,7 @@ sudo apt install python3-tk nftables  # Debian/Ubuntu
 | `doctor` | env check (binaries, lists, privileges, `warp-cli`, fooling) + fixes |
 | `status` | desync state with PID, active strategy + fooling, WARP state |
 | `check` | full snapshot: desync, tunnel, reachability of 6 targets, exit IP; exit code 0/1 |
+| `tune` | try ~16 candidate strategies and pick one that works on this network |
 | `start` | desync → WARP; prints the effective `argv` |
 | `stop` | stop WARP, stop desync, clear firewall table |
 | `strategies` | list available `.bat` strategies |
@@ -96,6 +97,23 @@ Each probe returns an error **class**, not just pass/fail: `timeout` (blocked),
 
 Logs are written to `%LOCALAPPDATA%\zapret-warp\zapret-warp.log` (Linux:
 `~/.local/state/zapret-warp/`), rotated at 1 MB × 3.
+
+### Autotuning
+
+The repo ships 24 `.bat` strategies and no way to know which one works on your
+network. `tune` tries them systematically:
+
+```bash
+python cli.py tune --dry-run    # list candidates (16), no side effects
+python cli.py tune              # run; needs administrator/root (restarts winws)
+python cli.py tune --apply      # save the winner as strategies/tuned.bat
+```
+
+Candidates are scored by success rate, median RTT and **leaks**: a `reset`/`tls_*`
+answer means the fake reached the server, so a leaky candidate ranks below a clean
+one even if it is faster. Default budget is 180 s (`--budget`), attempts per target
+is 2 (`--attempts`). Candidates cover `fake`, `fake+multisplit`, `hostfakesplit`,
+`multidisorder`, `fakedsplit` × `md5sig`/`md5sig,badseq`/`badseq`.
 
 ## Configuration (`config.json`, created on first run)
 

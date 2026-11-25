@@ -154,18 +154,27 @@ def is_running():
 
 def start(name, interface, gamefilter_tcp, gamefilter_udp, fooling=None,
           kill_with_parent=False):
-    """Поднять десинк. Возвращает разобранную стратегию (для лога/диагностики).
+    """Поднять десинк по имени стратегии из strategies/.
 
     kill_with_parent — только для GUI: привязать winws к Job Object, чтобы он
     гарантированно умирал вместе с приложением. CLI этого делать не должен:
     он завершается сразу после запуска, и туннель умер бы вместе с ним.
     """
-    log = _log_get("engine")
     p = strategy.parse(name, gamefilter_tcp, gamefilter_udp, fooling=fooling)
-    log.info("старт: стратегия=%s fooling=%s argv=%s",
-             name, p["fooling"], " ".join(p["all_args"]))
+    return start_parsed(p, interface=interface, kill_with_parent=kill_with_parent)
+
+
+def start_parsed(p, interface="any", kill_with_parent=False):
+    """Запустить десинк по уже разобранной стратегии (dict из strategy.parse).
+
+    Отдельная точка входа нужна автоподбору: он генерирует стратегию
+    во временный .bat и запускает её тем же путём, что и штатные, — иначе
+    подбор проверял бы не то, что потом реально работает.
+    """
+    log = _log_get("engine")
+    log.info("старт: fooling=%s argv=%s", p.get("fooling"), " ".join(p["all_args"]))
     if os.name == "nt":
-        if "ts" in p["fooling"] and not ensure_tcp_timestamps():
+        if "ts" in (p.get("fooling") or "") and not ensure_tcp_timestamps():
             log.warning("не удалось включить TCP timestamps: fooling=ts может не работать")
         _start_winws(p["all_args"], kill_with_parent=kill_with_parent)
     else:

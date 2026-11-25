@@ -29,3 +29,7 @@ bin/wireproxy
 # PyInstaller
 build/
 dist/
+
+# Автоподбор: временные файлы кандидатов и сгенерированный победитель
+strategies/.tune-*.bat
+strategies/tuned.bat
